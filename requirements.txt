@@ -1,0 +1,44 @@
+# FastAPI and server
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# PDF Processing
+pypdf2==3.0.1
+pdfplumber==0.10.3
+python-magic==0.4.27
+
+# LangChain and RAG (Compatible versions)
+langchain==0.1.0
+langchain-community==0.0.10
+langchain-openai==0.0.2
+openai==1.7.2
+
+# Google Gemini (for Gemini provider)
+google-generativeai==0.8.3
+
+# Vector Database
+chromadb==0.4.22
+
+# Knowledge Graph (NetworkX - in-memory)
+networkx==3.2.1
+
+# Text Processing and Embeddings
+sentence-transformers==2.2.2
+tiktoken==0.5.2
+
+# Utilities
+python-dotenv==1.0.0
+tenacity==8.2.3
+
+# UI
+streamlit==1.29.0
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-mock==3.12.0
+pytest-cov==4.1.0
+httpx==0.25.2
