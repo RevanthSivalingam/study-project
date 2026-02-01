@@ -52,6 +52,19 @@ st.markdown("""
         border-radius: 0.5rem;
         margin: 0.5rem 0;
     }
+    /* Ensure chat messages display fully */
+    .stChatMessage {
+        max-height: none !important;
+        overflow: visible !important;
+    }
+    .stChatMessage > div {
+        max-height: none !important;
+        overflow: visible !important;
+    }
+    /* Preserve whitespace and newlines */
+    .stMarkdown {
+        white-space: pre-wrap !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -183,13 +196,28 @@ with st.sidebar:
     stats = get_stats()
 
     if stats:
-        st.markdown(f"""
-        <div class="stats-box">
-            <strong>Documents Indexed:</strong> {stats.get('total_documents_indexed', 0)}<br>
-            <strong>Entities Extracted:</strong> {stats.get('total_entities', 0)}<br>
-            <strong>Knowledge Base:</strong> Active
-        </div>
-        """, unsafe_allow_html=True)
+        # Check if Enhanced RAG stats are available
+        if 'total_sections' in stats:
+            # Enhanced RAG stats
+            st.markdown(f"""
+            <div class="stats-box">
+                <strong>🎯 Enhanced RAG Active</strong><br>
+                <strong>Sections:</strong> {stats.get('total_sections', 0)}<br>
+                <strong>Key Terms:</strong> {stats.get('term_learner', {}).get('num_key_terms', 0)}<br>
+                <strong>KG Mappings:</strong> {stats.get('knowledge_graph', {}).get('total_mappings', 0)}<br>
+                <strong>Clusters:</strong> {stats.get('clustering', {}).get('n_clusters', 0)}<br>
+                <strong>Strategy:</strong> {stats.get('settings', {}).get('chunking_strategy', 'N/A')}
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            # Legacy stats
+            st.markdown(f"""
+            <div class="stats-box">
+                <strong>Documents Indexed:</strong> {stats.get('total_documents_indexed', 0)}<br>
+                <strong>Entities Extracted:</strong> {stats.get('total_entities', 0)}<br>
+                <strong>Knowledge Base:</strong> Active
+            </div>
+            """, unsafe_allow_html=True)
     else:
         st.info("No statistics available")
 
@@ -206,7 +234,10 @@ st.header("💬 Chat with Policies")
 # Display chat history
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+        # Display content with proper line breaks
+        content = message["content"]
+        # Preserve newlines in markdown
+        st.markdown(content.replace('\n', '  \n'))
 
         # Display sources if available
         if message["role"] == "assistant" and "sources" in message:
@@ -231,6 +262,16 @@ for message in st.session_state.messages:
 
             if message.get("entities_found"):
                 st.markdown(f"**Entities:** {', '.join(message['entities_found'])}")
+
+            # Display Enhanced RAG metrics if available
+            if message.get("retrieval_method"):
+                st.markdown(f"**Retrieval:** {message.get('retrieval_method', 'N/A')}")
+            if message.get("mmr_sentences_used"):
+                st.markdown(f"**MMR Sentences:** {message.get('mmr_sentences_used', 0)}")
+            if message.get("precision_at_k") is not None:
+                st.markdown(f"**Precision@k:** {message.get('precision_at_k', 0):.2f}")
+            if message.get("recall_at_k") is not None:
+                st.markdown(f"**Recall@k:** {message.get('recall_at_k', 0):.2f}")
 
 # Chat input
 if prompt := st.chat_input("Ask a question about your policies..."):
@@ -292,6 +333,20 @@ if prompt := st.chat_input("Ask a question about your policies..."):
                     entities = response.get("entities_found", [])
                     if entities:
                         st.markdown(f"**Entities:** {', '.join(entities)}")
+
+                    # Display Enhanced RAG metrics
+                    if response.get("retrieval_method"):
+                        st.markdown(f"**Retrieval Method:** {response.get('retrieval_method', 'N/A')}")
+                    if response.get("mmr_sentences_used"):
+                        st.markdown(f"**MMR Sentences:** {response.get('mmr_sentences_used', 0)}")
+                    if response.get("section_title"):
+                        st.markdown(f"**Section:** {response.get('section_title', 'N/A')}")
+                    if response.get("precision_at_k") is not None:
+                        st.markdown(f"**Precision@k:** {response.get('precision_at_k', 0):.2f}")
+                    if response.get("recall_at_k") is not None:
+                        st.markdown(f"**Recall@k:** {response.get('recall_at_k', 0):.2f}")
+                    if response.get("mrr") is not None:
+                        st.markdown(f"**MRR:** {response.get('mrr', 0):.2f}")
 
                     st.rerun()
 

@@ -28,6 +28,43 @@ class Settings(BaseSettings):
     # Embedding Model
     embedding_model: str = Field(default="text-embedding-ada-002")
 
+    # RAG Strategy Configuration
+    embedding_strategy: str = Field(
+        default="provider",
+        env="EMBEDDING_STRATEGY",
+        description="Embedding strategy: 'provider' (OpenAI/Gemini) or 'local' (SentenceTransformer)"
+    )
+    chunking_strategy: str = Field(
+        default="fixed",
+        env="CHUNKING_STRATEGY",
+        description="Chunking strategy: 'fixed' (legacy) or 'section' (header-based)"
+    )
+    use_mmr_retrieval: bool = Field(
+        default=False,
+        env="USE_MMR_RETRIEVAL",
+        description="Enable MMR-based sentence selection"
+    )
+    mmr_k: int = Field(
+        default=6,
+        env="MMR_K",
+        description="Number of sentences to select with MMR"
+    )
+    mmr_lambda: float = Field(
+        default=0.7,
+        env="MMR_LAMBDA",
+        description="MMR lambda parameter (0-1): relevance vs diversity tradeoff"
+    )
+    n_clusters: int = Field(
+        default=6,
+        env="N_CLUSTERS",
+        description="Number of clusters for section clustering"
+    )
+    use_llm_refinement: bool = Field(
+        default=False,
+        env="USE_LLM_REFINEMENT",
+        description="Use LLM to refine MMR-selected sentences (increases cost)"
+    )
+
     class Config:
         env_file = ".env"
         case_sensitive = False

@@ -149,7 +149,7 @@ def get_chat_llm(model: str = None, temperature: float = 0) -> BaseLLM:
     """
     if settings.llm_provider == "gemini":
         return SimpleGeminiChat(
-            model=model or "gemini-2.0-flash-exp",
+            model=model or "gemini-pro",
             temperature=temperature
         )
     else:

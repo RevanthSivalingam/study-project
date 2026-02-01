@@ -75,13 +75,47 @@ class SimpleGeminiEmbeddings(Embeddings):
             raise
 
 
+class SentenceTransformerEmbeddings(Embeddings):
+    """Local SentenceTransformer embeddings for privacy and cost efficiency"""
+
+    def __init__(self, model_name: str = "all-mpnet-base-v2"):
+        from sentence_transformers import SentenceTransformer
+        self.model = SentenceTransformer(model_name)
+        self.model_name = model_name
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        """Embed a list of documents"""
+        try:
+            texts = [text.replace("\n", " ") for text in texts]
+            embeddings = self.model.encode(texts, show_progress_bar=False)
+            return embeddings.tolist()
+        except Exception as e:
+            print(f"SentenceTransformer embeddings error: {type(e).__name__}: {str(e)}")
+            raise
+
+    def embed_query(self, text: str) -> List[float]:
+        """Embed a single query"""
+        text = text.replace("\n", " ")
+        embedding = self.model.encode([text], show_progress_bar=False)
+        return embedding[0].tolist()
+
+
 def get_embeddings() -> Embeddings:
     """Factory function to get appropriate embeddings based on provider.
 
+    Strategy priority:
+    1. If embedding_strategy = "local", use SentenceTransformer
+    2. Else use provider-based (Gemini or OpenAI)
+
     Returns:
-        SimpleGeminiEmbeddings if GEMINI_API_KEY is set, else SimpleOpenAIEmbeddings
+        Appropriate Embeddings instance
     """
-    if settings.llm_provider == "gemini":
+    # Check if local strategy is requested
+    embedding_strategy = getattr(settings, 'embedding_strategy', 'provider')
+
+    if embedding_strategy == "local":
+        return SentenceTransformerEmbeddings()
+    elif settings.llm_provider == "gemini":
         return SimpleGeminiEmbeddings()
     else:
         # OpenAI fallback (still available and intact)

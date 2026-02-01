@@ -19,27 +19,41 @@ class RAGService:
     - Vector similarity search
     - Knowledge graph queries
     - LLM-based answer generation
+
+    Supports two strategies:
+    1. Legacy: Fixed-size chunking with direct vector search
+    2. Enhanced: Section-based with KG-guided retrieval and MMR
     """
 
     def __init__(self):
-        self.document_processor = DocumentProcessor()
-        self.vector_store = VectorStore()  # Sets API key based on provider
-        self.knowledge_graph = KnowledgeGraph()
+        # Strategy selection based on settings
+        if (settings.chunking_strategy == "section" and
+            settings.use_mmr_retrieval):
+            # Use enhanced RAG strategy
+            from app.services.enhanced_rag_service import EnhancedRAGService
+            self.strategy = EnhancedRAGService()
+            self.is_enhanced = True
+            print("Initialized with Enhanced RAG strategy")
+        else:
+            # Use legacy strategy (original implementation)
+            self.strategy = self  # Self-delegation
+            self.is_enhanced = False
 
-        # Initialize LLM using factory (auto-selects provider)
-        self.llm = get_chat_llm(temperature=0)
+            # Legacy components
+            self.document_processor = DocumentProcessor()
+            self.vector_store = VectorStore()
+            self.knowledge_graph = KnowledgeGraph()
+            self.llm = get_chat_llm(temperature=0)
 
-        # Conversation memory (can be session-specific)
-        self.memory = ConversationBufferMemory(
-            memory_key="chat_history",
-            return_messages=True,
-            output_key="answer"
-        )
+            self.memory = ConversationBufferMemory(
+                memory_key="chat_history",
+                return_messages=True,
+                output_key="answer"
+            )
 
-        # Custom prompt for policy Q&A
-        self.qa_prompt = PromptTemplate(
-            input_variables=["context", "question"],
-            template="""You are an enterprise policy assistant. Answer questions based on the provided policy documents.
+            self.qa_prompt = PromptTemplate(
+                input_variables=["context", "question"],
+                template="""You are an enterprise policy assistant. Answer questions based on the provided policy documents.
 
 Context from policy documents:
 {context}
@@ -53,7 +67,8 @@ Instructions:
 - Be professional and accurate
 
 Answer:"""
-        )
+            )
+            print("Initialized with Legacy RAG strategy")
 
     def process_document(
         self,
@@ -62,11 +77,18 @@ Answer:"""
         metadata: Dict[str, Any] = None
     ) -> Dict[str, Any]:
         """
-        Process a new document: extract, chunk, embed, and create knowledge graph
+        Process a new document: extract, chunk, embed, and create knowledge graph.
+
+        Delegates to appropriate strategy (enhanced or legacy).
 
         Returns:
             Processing results including counts and IDs
         """
+        # Delegate to strategy
+        if self.is_enhanced:
+            return self.strategy.process_document(file_path, document_type, metadata)
+
+        # Legacy implementation below
         try:
             # Step 1: Process and chunk the document
             documents = self.document_processor.chunk_document(
@@ -115,7 +137,9 @@ Answer:"""
 
     def query(self, question: str, session_id: str = None) -> ChatResponse:
         """
-        Answer a question using RAG pipeline
+        Answer a question using RAG pipeline.
+
+        Delegates to appropriate strategy (enhanced or legacy).
 
         Steps:
         1. Vector similarity search to find relevant chunks
@@ -123,6 +147,11 @@ Answer:"""
         3. Combine context and generate answer with LLM
         4. Return answer with source references
         """
+        # Delegate to strategy
+        if self.is_enhanced:
+            return self.strategy.query(question, session_id)
+
+        # Legacy implementation below
         try:
             # Step 1: Vector similarity search
             relevant_docs = self.vector_store.similarity_search_with_score(
@@ -250,7 +279,13 @@ Answer:"""
 
     def get_stats(self) -> Dict[str, Any]:
         """Get system statistics"""
+        # Delegate to strategy if enhanced
+        if self.is_enhanced:
+            return self.strategy.get_stats()
+
+        # Legacy implementation
         return {
+            "strategy": "legacy",
             "total_documents_indexed": self.vector_store.get_document_count(),
             "total_entities": len(self.knowledge_graph.get_all_entities()),
         }

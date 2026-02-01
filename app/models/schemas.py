@@ -42,6 +42,36 @@ class ChatResponse(BaseModel):
     confidence_score: Optional[float] = Field(default=None)
     entities_found: Optional[List[str]] = Field(default=None)
 
+    # Enhanced RAG fields (optional, backward compatible)
+    retrieval_method: Optional[str] = Field(
+        default=None,
+        description="Retrieval method used: 'kg_guided', 'semantic_fallback', or 'fixed_chunk'"
+    )
+    mmr_sentences_used: Optional[int] = Field(
+        default=None,
+        description="Number of sentences selected via MMR"
+    )
+    cluster_id: Optional[int] = Field(
+        default=None,
+        description="Cluster ID used for semantic fallback"
+    )
+    section_title: Optional[str] = Field(
+        default=None,
+        description="Title of the section retrieved from"
+    )
+    precision_at_k: Optional[float] = Field(
+        default=None,
+        description="Precision@k evaluation metric"
+    )
+    recall_at_k: Optional[float] = Field(
+        default=None,
+        description="Recall@k evaluation metric"
+    )
+    mrr: Optional[float] = Field(
+        default=None,
+        description="Mean Reciprocal Rank evaluation metric"
+    )
+
 
 class HealthCheckResponse(BaseModel):
     """Health check response"""
