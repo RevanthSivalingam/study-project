@@ -57,10 +57,14 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     sources: Optional[List[Dict[str, Any]]] = []
-    confidence_score: Optional[float] = 0.0
+    confidence: Optional[Dict[str, Any]] = None
+    confidence_score: Optional[float] = 0.0  # Deprecated, kept for backward compatibility
     entities_found: Optional[List[str]] = []
     method: Optional[str] = None
     section_title: Optional[str] = None
+    llm_provider: Optional[str] = None
+    tokens_used: Optional[int] = None
+    fallback_used: Optional[bool] = None
 
 class StatsResponse(BaseModel):
     data: Dict[str, Any]
@@ -72,6 +76,8 @@ class HealthResponse(BaseModel):
 class InitializeRequest(BaseModel):
     api_key: Optional[str] = None
     input_folder: Optional[str] = "inputfiles"
+    provider: Optional[str] = "none"
+    gemini_api_key: Optional[str] = None
 
 class InitializeResponse(BaseModel):
     success: bool
@@ -95,10 +101,17 @@ async def initialize_system(request: InitializeRequest):
     global rag_system, system_initialized
 
     try:
+        # Build LLM config from request
+        llm_config = {
+            'provider': request.provider,
+            'openai_api_key': request.api_key,
+            'gemini_api_key': request.gemini_api_key
+        }
+
         # Create RAG system
         rag_system = RAGSystem(
-            api_key=request.api_key,
-            input_folder=request.input_folder
+            input_folder=request.input_folder,
+            llm_config=llm_config
         )
 
         # Initialize
@@ -177,27 +190,34 @@ async def chat(request: ChatRequest):
         # Process query
         result = rag_system.answer_query(request.query)
 
-        # Format sources
-        sources = []
-        if result.get("retrieved_sentences"):
+        # Use actual sources from result or format from retrieved sentences
+        sources = result.get("sources", [])
+        if not sources and result.get("retrieved_sentences"):
+            # Fallback for backward compatibility
+            sources = []
             for idx, sentence in enumerate(result["retrieved_sentences"], 1):
                 sources.append({
-                    "document_name": result.get("section_title", "Unknown"),
-                    "page_number": "N/A",
-                    "relevance_score": 0.85,  # Placeholder
-                    "excerpt": sentence
+                    "text": sentence,
+                    "section": result.get("section_title", "Unknown"),
+                    "relevance_score": 0.7,
+                    "rank": idx
                 })
 
-        # Calculate confidence (placeholder)
-        confidence = 0.8 if result.get("method") == "knowledge_graph" else 0.7
+        # Get confidence object (new format) or create from score (old format)
+        confidence_data = result.get("confidence", {})
+        confidence_score = confidence_data.get("score", 0.0) if confidence_data else 0.7
 
         return {
             "answer": result.get("answer", "No answer generated"),
             "sources": sources,
-            "confidence_score": confidence,
+            "confidence": confidence_data,
+            "confidence_score": confidence_score,  # Backward compatibility
             "entities_found": [],
             "method": result.get("method"),
-            "section_title": result.get("section_title")
+            "section_title": result.get("section_title"),
+            "llm_provider": result.get("llm_provider"),
+            "tokens_used": result.get("tokens_used", 0),
+            "fallback_used": result.get("fallback_used", False)
         }
 
     except Exception as e:

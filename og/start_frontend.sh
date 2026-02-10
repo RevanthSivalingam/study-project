@@ -39,3 +39,6 @@ echo ""
 
 # Start Streamlit
 streamlit run ui_api.py
+
+# or use python 3 
+python3 -m streamlit run ui.py --server.headless true

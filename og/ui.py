@@ -65,10 +65,10 @@ if "rag_system" not in st.session_state:
 if "initialized" not in st.session_state:
     st.session_state.initialized = False
 
-def initialize_rag_system(api_key=None):
+def initialize_rag_system(llm_config=None):
     """Initialize or reinitialize the RAG system"""
     with st.spinner("Initializing RAG system..."):
-        rag_system = RAGSystem(api_key=api_key, input_folder="inputfiles")
+        rag_system = RAGSystem(input_folder="inputfiles", llm_config=llm_config)
         success, message = rag_system.initialize()
 
         if success:
@@ -108,13 +108,19 @@ st.markdown('<div class="main-header">📚 RAG Policy Chatbot</div>', unsafe_all
 with st.sidebar:
     st.header("🔧 Configuration")
 
-    # OpenAI API Key (optional)
-    st.markdown("### OpenAI API Key (Optional)")
-    api_key = st.text_input(
-        "Enter OpenAI API Key",
-        type="password",
-        help="Optional: For LLM-based answer generation. Leave empty for retrieval-only mode."
+    # LLM Configuration
+    st.markdown("### LLM Configuration (Optional)")
+    provider = st.selectbox(
+        "LLM Provider",
+        ["none", "openai", "gemini"],
+        help="Select LLM provider for answer synthesis. 'none' uses retrieval-only mode."
     )
+
+    api_key = None
+    if provider == "openai":
+        api_key = st.text_input("OpenAI API Key", type="password")
+    elif provider == "gemini":
+        api_key = st.text_input("Gemini API Key", type="password")
 
     st.markdown("---")
 
@@ -143,7 +149,12 @@ with st.sidebar:
             st.success(f"✅ Uploaded {len(uploaded_files)} file(s)")
 
             # Initialize/Reinitialize RAG system
-            success, message = initialize_rag_system(api_key if api_key else None)
+            llm_config = {
+                'provider': provider,
+                'openai_api_key': api_key if provider == 'openai' else None,
+                'gemini_api_key': api_key if provider == 'gemini' else None
+            }
+            success, message = initialize_rag_system(llm_config)
 
             if success:
                 st.success(message)
@@ -154,7 +165,12 @@ with st.sidebar:
 
     # Initialize System Button
     if st.button("🔄 Initialize System", type="secondary"):
-        success, message = initialize_rag_system(api_key if api_key else None)
+        llm_config = {
+            'provider': provider,
+            'openai_api_key': api_key if provider == 'openai' else None,
+            'gemini_api_key': api_key if provider == 'gemini' else None
+        }
+        success, message = initialize_rag_system(llm_config)
 
         if success:
             st.success(message)
@@ -231,8 +247,55 @@ for message in st.session_state.messages:
             if metadata.get("section_title"):
                 st.markdown(f"**Section:** {metadata['section_title']}")
 
-            # Show retrieved sentences
-            if metadata.get("retrieved_sentences"):
+            # Show sources with relevance scores
+            sources = metadata.get("sources", [])
+            if sources:
+                # Calculate and display cumulative relevance
+                cumulative_relevance = sum(s.get("relevance_score", 0.0) for s in sources) / len(sources)
+
+                # Color code cumulative
+                if cumulative_relevance >= 0.8:
+                    cum_color = "🟢"
+                    cum_level = "Very High"
+                elif cumulative_relevance >= 0.65:
+                    cum_color = "🟡"
+                    cum_level = "High"
+                elif cumulative_relevance >= 0.5:
+                    cum_color = "🟠"
+                    cum_level = "Medium"
+                else:
+                    cum_color = "🔴"
+                    cum_level = "Low"
+
+                st.markdown(f"**📊 Avg Relevance:** {cum_color} {cumulative_relevance:.1%} ({cum_level})")
+
+                with st.expander(f"📎 View {len(sources)} Individual Sources"):
+                    for source in sources:
+                        relevance = source.get("relevance_score", 0.0)
+                        rank = source.get("rank", 0)
+                        text = source.get("text", "")
+
+                        # Color code relevance
+                        if relevance >= 0.8:
+                            rel_badge = "🟢 Very High"
+                        elif relevance >= 0.65:
+                            rel_badge = "🟡 High"
+                        elif relevance >= 0.5:
+                            rel_badge = "🟠 Medium"
+                        else:
+                            rel_badge = "🔴 Low"
+
+                        st.markdown(f"""
+                        <div class="source-card">
+                            <strong>Source #{rank}</strong> &nbsp;
+                            <span style="color: #666; font-size: 0.9em;">Relevance: {rel_badge} ({relevance:.1%})</span><br>
+                            <div style="margin-top: 4px; font-size: 0.95em;">
+                                <em>"{text}"</em>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+            elif metadata.get("retrieved_sentences"):
+                # Fallback for old format without scores
                 with st.expander("📎 View Retrieved Sentences"):
                     for idx, sentence in enumerate(metadata["retrieved_sentences"], 1):
                         st.markdown(f"""
@@ -267,29 +330,111 @@ if prompt := st.chat_input("Ask a question about your documents...", disabled=no
                         "metadata": {
                             "method": result.get("method"),
                             "section_title": result.get("section_title"),
-                            "retrieved_sentences": result.get("retrieved_sentences", [])
+                            "retrieved_sentences": result.get("retrieved_sentences", []),
+                            "sources": result.get("sources", []),
+                            "confidence": result.get("confidence", {}),
+                            "llm_provider": result.get("llm_provider"),
+                            "tokens_used": result.get("tokens_used", 0),
+                            "fallback_used": result.get("fallback_used", False)
                         }
                     })
 
-                    # Display metadata
-                    method = result.get("method")
-                    st.markdown(
-                        f"**Method:** {format_method(method)}",
-                        unsafe_allow_html=True
-                    )
+                    # Display metadata in a clean format
+                    st.markdown("---")
 
+                    # Confidence Score with color coding
+                    confidence = result.get("confidence", {})
+                    conf_score = confidence.get("score", 0.0)
+                    conf_level = confidence.get("level", "Unknown")
+
+                    if conf_score >= 0.85:
+                        conf_color = "🟢"
+                    elif conf_score >= 0.70:
+                        conf_color = "🟡"
+                    elif conf_score >= 0.55:
+                        conf_color = "🟠"
+                    else:
+                        conf_color = "🔴"
+
+                    # Calculate cumulative relevance from sources
+                    sources = result.get("sources", [])
+                    if sources:
+                        cumulative_relevance = sum(s.get("relevance_score", 0.0) for s in sources) / len(sources)
+                    else:
+                        # Fallback to metadata
+                        metadata_result = result.get("metadata", {})
+                        cumulative_relevance = metadata_result.get("avg_sentence_relevance", 0.0)
+
+                    # Color code cumulative relevance
+                    if cumulative_relevance >= 0.8:
+                        rel_color = "🟢"
+                        rel_level = "Very High"
+                    elif cumulative_relevance >= 0.65:
+                        rel_color = "🟡"
+                        rel_level = "High"
+                    elif cumulative_relevance >= 0.5:
+                        rel_color = "🟠"
+                        rel_level = "Medium"
+                    else:
+                        rel_color = "🔴"
+                        rel_level = "Low"
+
+                    col1, col2, col3 = st.columns(3)
+
+                    with col1:
+                        st.markdown(f"**🎯 Confidence:** {conf_color} {conf_score:.1%} ({conf_level})")
+
+                    with col2:
+                        method = result.get("method")
+                        st.markdown(f"**Method:** {format_method(method)}", unsafe_allow_html=True)
+
+                    with col3:
+                        llm_provider = result.get("llm_provider", "none")
+                        st.markdown(f"**🤖 Provider:** {llm_provider.upper()}")
+
+                    # Display cumulative relevance prominently
+                    st.markdown(f"**📊 Avg Relevance:** {rel_color} {cumulative_relevance:.1%} ({rel_level}) · Based on {len(sources)} sources")
+
+                    # Section info
                     section_title = result.get("section_title")
                     if section_title:
-                        st.markdown(f"**Section:** {section_title}")
+                        st.markdown(f"**📄 Source Section:** {section_title}")
 
-                    retrieved_sentences = result.get("retrieved_sentences", [])
-                    if retrieved_sentences:
-                        with st.expander("📎 View Retrieved Sentences"):
-                            for idx, sentence in enumerate(retrieved_sentences, 1):
+                    # Tokens used
+                    tokens_used = result.get("tokens_used", 0)
+                    if tokens_used > 0:
+                        st.markdown(f"**💰 Tokens Used:** {tokens_used}")
+
+                    # Fallback warning
+                    if result.get("fallback_used"):
+                        st.info("⚠️ LLM unavailable, using retrieval-only mode")
+
+                    # Display sources with relevance scores
+                    sources = result.get("sources", [])
+                    if sources:
+                        with st.expander(f"📎 View {len(sources)} Sources with Relevance Scores"):
+                            for source in sources:
+                                relevance = source.get("relevance_score", 0.0)
+                                rank = source.get("rank", 0)
+                                text = source.get("text", "")
+
+                                # Color code relevance
+                                if relevance >= 0.8:
+                                    rel_badge = "🟢 Very High"
+                                elif relevance >= 0.65:
+                                    rel_badge = "🟡 High"
+                                elif relevance >= 0.5:
+                                    rel_badge = "🟠 Medium"
+                                else:
+                                    rel_badge = "🔴 Low"
+
                                 st.markdown(f"""
                                 <div class="source-card">
-                                    <strong>Sentence {idx}:</strong><br>
-                                    <em>"{sentence}"</em>
+                                    <strong>Source #{rank}</strong> &nbsp;
+                                    <span style="color: #666; font-size: 0.9em;">Relevance: {rel_badge} ({relevance:.1%})</span><br>
+                                    <div style="margin-top: 8px; padding: 8px; background: #f8f9fa; border-radius: 4px;">
+                                        <em>"{text}"</em>
+                                    </div>
                                 </div>
                                 """, unsafe_allow_html=True)
 

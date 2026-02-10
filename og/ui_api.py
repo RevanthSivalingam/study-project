@@ -125,11 +125,13 @@ def send_chat_message(query: str) -> Dict:
     response = requests.post(f"{API_BASE_URL}/chat", json=payload)
     return response.json()
 
-def initialize_system(api_key: str = None) -> Dict:
+def initialize_system(provider: str = "none", api_key: str = None) -> Dict:
     """Initialize the RAG system"""
     payload = {
         "api_key": api_key,
-        "input_folder": "inputfiles"
+        "input_folder": "inputfiles",
+        "provider": provider,
+        "gemini_api_key": api_key if provider == 'gemini' else None
     }
     response = requests.post(f"{API_BASE_URL}/initialize", json=payload)
     return response.json()
@@ -172,13 +174,19 @@ with st.sidebar:
         """, unsafe_allow_html=True)
         st.stop()
 
-    # OpenAI API Key (optional)
-    st.markdown("### OpenAI API Key (Optional)")
-    api_key = st.text_input(
-        "Enter OpenAI API Key",
-        type="password",
-        help="Optional: For LLM-based answer generation"
+    # LLM Configuration
+    st.markdown("### LLM Configuration (Optional)")
+    provider = st.selectbox(
+        "LLM Provider",
+        ["none", "openai", "gemini"],
+        help="Select LLM provider for answer synthesis. 'none' uses retrieval-only mode."
     )
+
+    api_key = None
+    if provider == "openai":
+        api_key = st.text_input("OpenAI API Key", type="password")
+    elif provider == "gemini":
+        api_key = st.text_input("Gemini API Key", type="password")
 
     st.markdown("---")
 
@@ -242,7 +250,7 @@ with st.sidebar:
     if st.button("🔄 Initialize System", type="secondary"):
         with st.spinner("Initializing..."):
             try:
-                result = initialize_system(api_key if api_key else None)
+                result = initialize_system(provider, api_key if api_key else None)
 
                 if result.get("success"):
                     st.success(result.get("message"))
@@ -374,7 +382,15 @@ if prompt := st.chat_input("Ask a question about your documents...", disabled=ch
                     answer = response.get("answer", "No answer received")
                     st.markdown(answer)
 
-                    # Store message with metadata
+                    # Store message with metadata - handle both confidence formats
+                    confidence_data = response.get("confidence", response.get("confidence_score", 0))
+                    if isinstance(confidence_data, dict):
+                        conf_score = confidence_data.get("score", 0.0)
+                        conf_level = confidence_data.get("level", "Unknown")
+                    else:
+                        conf_score = confidence_data
+                        conf_level = "Medium" if conf_score >= 0.5 else "Low"
+
                     st.session_state.messages.append({
                         "role": "assistant",
                         "content": answer,
@@ -382,37 +398,98 @@ if prompt := st.chat_input("Ask a question about your documents...", disabled=ch
                             "method": response.get("method"),
                             "section_title": response.get("section_title"),
                             "sources": response.get("sources", []),
-                            "confidence_score": response.get("confidence_score", 0)
+                            "confidence": {"score": conf_score, "level": conf_level},
+                            "llm_provider": response.get("llm_provider"),
+                            "tokens_used": response.get("tokens_used", 0),
+                            "fallback_used": response.get("fallback_used", False)
                         }
                     })
 
-                    # Display metadata
-                    method = response.get("method")
-                    if method:
-                        st.markdown(
-                            f"**Method:** {format_method(method)}",
-                            unsafe_allow_html=True
-                        )
+                    # Display metadata in a clean format
+                    st.markdown("---")
 
-                    confidence = response.get("confidence_score", 0)
-                    st.markdown(
-                        f"**Confidence:** {format_confidence(confidence)}",
-                        unsafe_allow_html=True
-                    )
+                    # Confidence Score with color coding
+                    if conf_score >= 0.85:
+                        conf_color = "🟢"
+                    elif conf_score >= 0.70:
+                        conf_color = "🟡"
+                    elif conf_score >= 0.55:
+                        conf_color = "🟠"
+                    else:
+                        conf_color = "🔴"
 
+                    col1, col2, col3 = st.columns(3)
+
+                    with col1:
+                        st.markdown(f"**🎯 Confidence:** {conf_color} {conf_score:.1%} ({conf_level})")
+
+                    with col2:
+                        method = response.get("method")
+                        st.markdown(f"**Method:** {format_method(method)}", unsafe_allow_html=True)
+
+                    with col3:
+                        llm_provider = response.get("llm_provider", "none")
+                        st.markdown(f"**🤖 Provider:** {llm_provider.upper()}")
+
+                    # Section info
                     section_title = response.get("section_title")
                     if section_title:
-                        st.markdown(f"**Section:** {section_title}")
+                        st.markdown(f"**📄 Source Section:** {section_title}")
+
+                    # Tokens used
+                    tokens_used = response.get("tokens_used", 0)
+                    if tokens_used > 0:
+                        st.markdown(f"**💰 Tokens Used:** {tokens_used}")
+
+                    # Fallback warning
+                    if response.get("fallback_used"):
+                        st.info("⚠️ LLM unavailable, using retrieval-only mode")
 
                     sources = response.get("sources", [])
                     if sources:
-                        with st.expander("📎 View Sources"):
-                            for idx, source in enumerate(sources, 1):
+                        # Calculate and display cumulative relevance
+                        cumulative_relevance = sum(s.get("relevance_score", 0.0) for s in sources) / len(sources)
+
+                        # Color code cumulative
+                        if cumulative_relevance >= 0.8:
+                            rel_color = "🟢"
+                            rel_level = "Very High"
+                        elif cumulative_relevance >= 0.65:
+                            rel_color = "🟡"
+                            rel_level = "High"
+                        elif cumulative_relevance >= 0.5:
+                            rel_color = "🟠"
+                            rel_level = "Medium"
+                        else:
+                            rel_color = "🔴"
+                            rel_level = "Low"
+
+                        st.markdown(f"**📊 Avg Relevance:** {rel_color} {cumulative_relevance:.1%} ({rel_level}) · Based on {len(sources)} sources")
+
+                        with st.expander(f"📎 View {len(sources)} Sources with Relevance Scores"):
+                            for source in sources:
+                                # Handle both new format (with 'text' and 'rank') and old format
+                                text = source.get('text', source.get('excerpt', ''))
+                                relevance = source.get('relevance_score', 0.0)
+                                rank = source.get('rank', source.get('idx', 0))
+
+                                # Color code relevance
+                                if relevance >= 0.8:
+                                    rel_badge = "🟢 Very High"
+                                elif relevance >= 0.65:
+                                    rel_badge = "🟡 High"
+                                elif relevance >= 0.5:
+                                    rel_badge = "🟠 Medium"
+                                else:
+                                    rel_badge = "🔴 Low"
+
                                 st.markdown(f"""
                                 <div class="source-card">
-                                    <strong>Source {idx}:</strong> {source.get('document_name', 'Unknown')}<br>
-                                    <strong>Relevance:</strong> {source.get('relevance_score', 0):.2%}<br>
-                                    <em>"{source.get('excerpt', '')[:150]}..."</em>
+                                    <strong>Source #{rank}</strong> &nbsp;
+                                    <span style="color: #666; font-size: 0.9em;">Relevance: {rel_badge} ({relevance:.1%})</span><br>
+                                    <div style="margin-top: 8px; padding: 8px; background: #f8f9fa; border-radius: 4px;">
+                                        <em>"{text}"</em>
+                                    </div>
                                 </div>
                                 """, unsafe_allow_html=True)
 
